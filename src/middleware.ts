@@ -13,6 +13,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Check for authentication token
+  console.log('Middleware cookies:', request.cookies.getAll());
   const token = request.cookies.get('token')?.value
 
   if (!token) {
