@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------
+// Core Models - Simplified Multi-Tenancy
+// --------------------------------------
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  cnpj      String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      WorkspaceMember[]
+  clients      Client[]
+  products     Product[]
+  orders       Order[]
+  transactions Transaction[]
+
+  @@index([name])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaces WorkspaceMember[]
+}
+
+model WorkspaceMember {
+  id        String   @id @default(cuid())
+  role      Role     @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+// --------------------------------------
+// Clientes
+// --------------------------------------
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  document  String? // CPF or CNPJ
+  email     String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  orders Order[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, name])
+}
+
+// --------------------------------------
+// Produtos/Estoque
+// --------------------------------------
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float // Preço de venda
+  costPrice   Float? // Preço de custo
+  quantity    Int      @default(0)
+  sku         String? // Código do produto
+  isService   Boolean  @default(false) // Produto ou Serviço
+  minStock    Int      @default(5) // Estoque mínimo
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  orderItems OrderItem[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, name])
+  @@index([workspaceId, quantity])
+}
+
+// --------------------------------------
+// Vendas
+// --------------------------------------
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String? // Número do pedido
+  status      OrderStatus @default(BUDGET)
+  totalAmount Float
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  items       OrderItem[]
+  transaction Transaction[] // Transações financeiras relacionadas
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  quantity  Int
+  unitPrice Float // Preço no momento da venda
+  createdAt DateTime @default(now())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+}
+
+// --------------------------------------
+// Financeiro
+// --------------------------------------
+
+model Transaction {
+  id          String            @id @default(cuid())
+  description String
+  amount      Float
+  type        TransactionType
+  status      TransactionStatus @default(PENDING)
+  dueDate     DateTime // Data de vencimento
+  paidAt      DateTime? // Data de pagamento
+  category    String? // Categoria da transação
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Pode estar vinculada a um pedido
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, type, status])
+  @@index([workspaceId, dueDate])
+}
+
+// --------------------------------------
+// Enums
+// --------------------------------------
+
+enum Role {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum OrderStatus {
+  BUDGET    // Orçamento
+  SOLD      // Vendido
+  CANCELED  // Cancelado/Recusado
+}
+
+enum TransactionType {
+  INCOME  // Entrada
+  EXPENSE // Saída
+}
+
+enum TransactionStatus {
+  PENDING // Pendente
+  PAID    // Pago
+  OVERDUE // Vencido
+}
