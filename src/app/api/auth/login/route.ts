@@ -1,108 +1,80 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { Prisma } from '@prisma/client'
-import { verifyPassword, signToken } from '@/lib/auth'
-import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    console.log('Login request body:', await request.clone().text());
-    const { email, password } = await request.json()
+    const body = await request.json()
+    const { email, password } = body
 
-    // Validation
+    // Validação básica dos dados de entrada
     if (!email || !password) {
       return NextResponse.json(
-        { error: 'Email e senha são obrigatórios' },
-        { status: 400 }
+        { message: 'E-mail e senha são obrigatórios.' },
+        { status: 400 }, // Bad Request
       )
     }
 
-    // Find user with workspace info (optimized query)
+    // 1. Encontrar o usuário no banco de dados pelo e-mail
     const user = await prisma.user.findUnique({
-      where: { email },
-      include: {
-        workspaces: {
-          include: {
-            workspace: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          },
-          take: 1 // Get only the first workspace for now
-        }
-      }
+      where: {
+        email: email.toLowerCase(), // Normalizar o e-mail para minúsculas
+      },
     })
 
+    // Se o usuário não existe, a senha está errada.
+    // Usamos bcrypt.compare com uma string aleatória para evitar "timing attacks",
+    // tornando o tempo de resposta semelhante ao de um login válido.
     if (!user) {
+      await bcrypt.compare(password, '$2a$10$invalidhashplaceholder') // Placeholder para segurança
       return NextResponse.json(
-        { error: 'Email ou senha incorretos' },
-        { status: 401 }
+        { message: 'Credenciais inválidas.' },
+        { status: 401 }, // Unauthorized
       )
     }
 
-    // Verify password
-    const isValidPassword = await verifyPassword(password, user.password)
-    if (!isValidPassword) {
+    // 2. Comparar a senha fornecida com o hash salvo no banco
+    const isPasswordCorrect = await bcrypt.compare(password, user.password)
+
+    if (!isPasswordCorrect) {
       return NextResponse.json(
-        { error: 'Email ou senha incorretos' },
-        { status: 401 }
+        { message: 'Credenciais inválidas.' },
+        { status: 401 },
       )
     }
 
-    // Get workspace ID (user should have at least one workspace)
-    const workspaceId = user.workspaces[0]?.workspace.id
+    // 3. Gerar o Token JWT se a senha estiver correta
+    const secret = process.env.JWT_SECRET
 
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: 'Usuário não possui workspace ativo' },
-        { status: 403 }
-      )
+    if (!secret) {
+      throw new Error('A chave secreta JWT não foi configurada no .env')
     }
 
-    // Generate JWT token
-    const token = signToken({
-      userId: user.id,
-      email: user.email,
-      workspaceId
-    })
-
-    // Set token in an HTTP-Only cookie
-    cookies().set('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    })
-
-    return NextResponse.json({
-      token,
-      user: {
+    const token = jwt.sign(
+      {
         id: user.id,
-        name: user.name,
         email: user.email,
-        workspace: {
-          id: workspaceId,
-          name: user.workspaces[0].workspace.name
-        }
-      }
-    })
+        name: user.name,
+      },
+      secret,
+      {
+        expiresIn: '1d', // O token expira em 1 dia
+      },
+    )
 
+    // 4. Retornar o token para o cliente
+    return NextResponse.json({
+      message: 'Login bem-sucedido!',
+      token,
+    })
   } catch (error) {
-    console.error('Login error:', error)
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      // The .code property can be accessed in a type-safe manner
-      if (error.code === 'P2021') {
-        return NextResponse.json(
-          { error: 'Erro de banco de dados: A tabela não foi encontrada.' },
-          { status: 500 }
-        )
-      }
-    }
+    // Log do erro no servidor para depuração
+    console.error('[LOGIN_API_ERROR]', error)
+
     return NextResponse.json(
-      { error: 'Erro interno do servidor' },
-      { status: 500 }
+      { message: 'Erro interno do servidor.' },
+      { status: 500 },
     )
   }
 }

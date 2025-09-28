@@ -1,55 +1,50 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { verifyToken } from './lib/auth'
 
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-
-  // Public routes that don't require authentication
-  const publicRoutes = ['/login', '/register', '/']
-  
-  if (publicRoutes.includes(pathname)) {
-    return NextResponse.next()
-  }
-
-  // Check for authentication token
-  console.log('Middleware cookies:', request.cookies.getAll());
+  // 1. Pega o token dos cookies da requisição
   const token = request.cookies.get('token')?.value
 
-  if (!token) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // 2. Pega a URL que o usuário está tentando acessar
+  const { pathname } = request.nextUrl
+
+  // 3. Define quais são as rotas públicas (que não precisam de login)
+  const publicPaths = ['/login', '/register'] // Adicione outras rotas públicas se houver
+
+  const isPublicPath = publicPaths.includes(pathname)
+
+  // LÓGICA DE REDIRECIONAMENTO
+  // CASO 1: O usuário está logado (tem token)
+  if (token) {
+    // Se ele está logado e tenta acessar a página de login ou registro,
+    // redireciona para o dashboard (página inicial).
+    if (isPublicPath) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+  }
+  // CASO 2: O usuário NÃO está logado (não tem token)
+  else {
+    // Se ele não está logado e tenta acessar uma página protegida,
+    // redireciona para a página de login.
+    if (!isPublicPath) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
   }
 
-  // Verify token
-  const payload = verifyToken(token)
-  if (!payload) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  // Add user info to headers for API routes
-  const requestHeaders = new Headers(request.headers)
-  requestHeaders.set('x-user-id', payload.userId)
-  requestHeaders.set('x-user-email', payload.email)
-  if (payload.workspaceId) {
-    requestHeaders.set('x-workspace-id', payload.workspaceId)
-  }
-
-  return NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  })
+  // Se nenhuma das condições acima for atendida, permite que a requisição continue
+  return NextResponse.next()
 }
 
+// Configuração do Matcher: Define em quais rotas o middleware será executado
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - api/auth (authentication routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
+     * Faz o match com todas as rotas, exceto as que começam com:
+     * - api (rotas de API)
+     * - _next/static (arquivos estáticos)
+     * - _next/image (imagens otimizadas)
+     * - favicon.ico (ícone do site)
      */
-    '/((?!api/auth|_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 }
