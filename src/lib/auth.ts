@@ -17,7 +17,9 @@ export function verifyPassword(password: string, hashedPassword: string): Promis
   return bcrypt.compare(password, hashedPassword)
 }
 
-export function signToken(payload: TokenPayload): string {
+import { JwtPayload } from './types';
+
+export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
 }
 

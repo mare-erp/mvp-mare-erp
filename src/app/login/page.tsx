@@ -20,6 +20,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
+    console.log('Sending login data:', formData);
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -32,8 +33,10 @@ export default function LoginPage() {
       const data = await response.json()
 
       if (response.ok) {
-        // Set cookie and redirect
-        document.cookie = `token=${data.token}; path=/; max-age=${7 * 24 * 60 * 60}` // 7 days
+        console.log('Login successful, redirecting...');
+        console.log('Token:', data.token);
+
+        router.refresh();
         router.push('/dashboard')
       } else {
         setError(data.error || 'Erro ao fazer login')

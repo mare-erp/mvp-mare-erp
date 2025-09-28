@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { verifyPassword, signToken } from '@/lib/auth'
+import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Login request body:', await request.clone().text());
     const { email, password } = await request.json()
 
     // Validation
@@ -65,6 +68,14 @@ export async function POST(request: NextRequest) {
       workspaceId
     })
 
+    // Set token in an HTTP-Only cookie
+    cookies().set('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    })
+
     return NextResponse.json({
       token,
       user: {
@@ -80,6 +91,15 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Login error:', error)
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      // The .code property can be accessed in a type-safe manner
+      if (error.code === 'P2021') {
+        return NextResponse.json(
+          { error: 'Erro de banco de dados: A tabela não foi encontrada.' },
+          { status: 500 }
+        )
+      }
+    }
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }
